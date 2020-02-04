@@ -36,16 +36,16 @@ typedef struct socks5_addr_ipv4_t {
 	uint16_t port;
 } PACKED socks5_addr_ipv4;
 
+typedef struct socks5_addr_ipv6_t {
+    struct in6_addr addr;
+	uint16_t port;
+} PACKED socks5_addr_ipv6;
+
 typedef struct socks5_addr_domain_t {
 	uint8_t size;
 	uint8_t more[1];
 	/* uint16_t port; */
 } PACKED socks5_addr_domain;
-
-typedef struct socks5_addr_ipv6_t {
-	uint8_t addr[16];
-	uint16_t port;
-} PACKED socks5_addr_ipv6;
 
 typedef struct socks5_req_t {
 	uint8_t ver;
@@ -63,13 +63,19 @@ typedef struct socks5_reply_t {
 	/* socks5_addr_* */
 } PACKED socks5_reply;
 
-typedef struct socks5_udp_preabmle_t {
+typedef struct socks5_udp_preamble_t {
 	uint16_t reserved;
 	uint8_t  frag_no;
 	uint8_t  addrtype;   /* 0x01 for IPv4 */
 	/* socks5_addr_* */
-	socks5_addr_ipv4 ip; /* I support only IPv4 at the moment */
-} PACKED socks5_udp_preabmle;
+	union {
+	   socks5_addr_ipv4 v4;
+	   socks5_addr_ipv6 v6;
+	} addr;
+} PACKED socks5_udp_preamble;
+
+#define SOCKS5_UDP_PREAMBLE_SIZE_V4 (4 + sizeof(socks5_addr_ipv4))
+#define SOCKS5_UDP_PREAMBLE_SIZE_V6 (4 + sizeof(socks5_addr_ipv6))
 
 static const int socks5_reply_maxlen = 512; // as domain name can't be longer than 256 bytes
 static const int socks5_addrtype_ipv4 = 1;
