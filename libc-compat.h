@@ -17,9 +17,24 @@
 #   define IP_RECVORIGDSTADDR IP_ORIGDSTADDR
 #endif
 
+#ifndef IPV6_ORIGDSTADDR
+#   warning Using hardcoded value for IPV6_ORIGDSTADDR as libc headers do not define it.
+#   define IPV6_ORIGDSTADDR 74
+#endif
+
+#ifndef IPV6_RECVORIGDSTADDR
+#   warning Using hardcoded value for IPV6_RECVORIGDSTADDR as libc headers do not define it.
+#   define IPV6_RECVORIGDSTADDR IPV6_ORIGDSTADDR
+#endif
+
 #ifndef IP_TRANSPARENT
 #   warning Using hardcoded value for IP_TRANSPARENT as libc headers do not define it.
 #   define IP_TRANSPARENT 19
+#endif
+
+#ifndef IPV6_TRANSPARENT
+#   warning Using hardcoded value for IPV6_TRANSPARENT as libc headers do not define it.
+#   define IPV6_TRANSPARENT 75
 #endif
 
 #ifndef SOL_IP

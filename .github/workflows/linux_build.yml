@@ -1,12 +1,10 @@
-name: C/C++ CI
+name: linux_build
 
 on: [push]
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
-    
     steps:
     - uses: actions/checkout@v1
     - name: install depends

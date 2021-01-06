@@ -75,8 +75,11 @@ int red_recv_udp_pkt(
         memset(toaddr, 0, sizeof(*toaddr));
         for (struct cmsghdr* cmsg = CMSG_FIRSTHDR(&msg); cmsg; cmsg = CMSG_NXTHDR(&msg, cmsg)) {
             if (
-                cmsg->cmsg_level == SOL_IP &&
-                cmsg->cmsg_type == IP_ORIGDSTADDR &&
+                ((cmsg->cmsg_level == SOL_IP && cmsg->cmsg_type == IP_ORIGDSTADDR)
+#ifdef SOL_IPV6
+                 || (cmsg->cmsg_level == SOL_IPV6 && cmsg->cmsg_type == IPV6_ORIGDSTADDR)
+#endif
+                 ) &&
                 (cmsg->cmsg_len == CMSG_LEN(sizeof(struct sockaddr_in))
                  || cmsg->cmsg_len == CMSG_LEN(sizeof(struct sockaddr_in6))) &&
                 cmsg->cmsg_len <= CMSG_LEN(sizeof(*toaddr))
@@ -418,6 +421,8 @@ char *red_inet_ntop(const struct sockaddr_storage* sa, char* buffer, size_t buff
         buffer[0] = '[';
         retval = inet_ntop(AF_INET6, &((const struct sockaddr_in6*)sa)->sin6_addr, buffer+1, buffer_size-1);
         port = ((struct sockaddr_in6*)sa)->sin6_port;
+        if (retval)
+            retval = buffer;
     }
     if (retval) {
         assert(retval == buffer);
@@ -492,9 +497,23 @@ size_t get_write_hwm(struct bufferevent *bufev)
 int make_socket_transparent(int fd)
 {
     int on = 1;
-    int error = setsockopt(fd, SOL_IP, IP_TRANSPARENT, &on, sizeof(on));
+    int error = 0;
+#ifdef SOL_IPV6
+    int error_6 = 0;
+#endif
+
+    error = setsockopt(fd, SOL_IP, IP_TRANSPARENT, &on, sizeof(on));
     if (error)
-        log_errno(LOG_ERR, "setsockopt(..., SOL_IP, IP_TRANSPARENT)");
+        log_errno(LOG_DEBUG, "setsockopt(fd, SOL_IP, IP_TRANSPARENT)");
+
+#ifdef SOL_IPV6
+    error_6 = setsockopt(fd, SOL_IPV6, IPV6_TRANSPARENT, &on, sizeof(on));
+    if (error_6)
+        log_errno(LOG_DEBUG, "setsockopt(fd, SOL_IPV6, IPV6_TRANSPARENT)");
+
+    if (error && error_6)
+        log_error(LOG_ERR, "Can not make socket transparent. See debug log for details.");
+#endif
     return error;
 }
 

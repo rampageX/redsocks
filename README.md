@@ -1,5 +1,8 @@
 REDSOCKS2
 =========
+[![Linux Build Status](https://github.com/semigodking/redsocks/workflows/linux_build/badge.svg)](https://github.com/semigodking/redsocks/actions)
+[![FreeBSD Build Status](https://github.com/semigodking/redsocks/workflows/freebsd_build/badge.svg)](https://github.com/semigodking/redsocks/actions)
+
 This is a modified version of original redsocks.
 The name is changed to REDSOCKS2 to distinguish with original redsocks.
 REDSOCKS2 contains several new features besides many bug fixes to original
@@ -15,7 +18,7 @@ need of blacklist.
 7. Support Ful-cone NAT Traversal when working with shadowsocks or socks5 proxy.
 8. Integrated HTTPS proxy support(HTTP CONNECT over SSL).
 9. Support TCP Fast Open on local server side and shadowsocks client side
-10.Support port reuse ([SO_REUSEPORT](https://lwn.net/Articles/542629/))
+10. Support port reuse ([SO_REUSEPORT](https://lwn.net/Articles/542629/))
 
 [Chinese Reference](https://github.com/semigodking/redsocks/wiki)
 
@@ -76,7 +79,7 @@ $ brew install openssl libevent
 Makefile include the folder of openssl headers and lib installed by brew.
 
 To build with PF and run on MacOS, you will need some pf headers that are not included with a standard MacOS installation.
-You can find them on this repository : https://github.com/opensource-apple/xnu
+You can find them on this repository : https://github.com/apple/darwin-xnu
 And the Makefile will going find this file for you
 
 Configurations
