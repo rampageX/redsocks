@@ -10,7 +10,7 @@ OBJS := parser.o main.o redsocks.o log.o direct.o ipcache.o autoproxy.o encrypt.
         tcpdns.o gen/version.o
 CFLAGS +=-fPIC -O3
 endif
-SRCS := $(OBJS:.o=.c)
+#SRCS := $(OBJS:.o=.c)
 CONF := config.h
 DEPS := .depend
 OUT := redsocks2
@@ -61,6 +61,8 @@ override LDFLAGS += -Wl,-static -static -static-libgcc -s
 override FEATURES += STATIC_COMPILE
 endif
 
+SRCS := $(OBJS:.o=.c)
+
 all: $(OUT)
 
 .PHONY: all clean distclean
@@ -99,11 +101,11 @@ gen/version.c: *.c *.h gen/.build
 		if [ `git status --porcelain | grep -v -c '^??'` != 0 ]; then \
 			echo '"-unclean"'; \
 		fi; \
-		echo '"\\n"'; \
+		echo '"\n"'; \
 		echo '"Features: $(FEATURES)"'; \
 	else \
 		echo '"redsocks/$(VERSION) $(CRYPTO)"'; \
-		echo '"\\n"'; \
+		echo '"\n"'; \
 		echo '"Features: $(FEATURES)"'; \
 	fi >> $@.tmp
 	echo ';' >> $@.tmp
