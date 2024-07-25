@@ -71,15 +71,16 @@ redsocks {
 	// min_accept_backoff = 100;
 	// max_accept_backoff = 60000;
 
-	// `relay` is IP address and port of proxy-server. Domain name is not
-	// supported yet.
+	// `relay` is IP address and port of proxy-server.
 	// Can be:
 	//     [IPv6Address]:port
 	//     [IPv6Address]
 	//     IPv6Address
 	//     IPv4Address:port
 	//     IPv4Address
+	//     domain.name:port
 	// If no port is given, 0 is used. Usually, a valid port is required.
+	// Random valid resolved IP address will be used.
 	relay = "127.0.0.1:1080";
 
 	// known types: socks4, socks5, http-connect, http-relay
@@ -111,7 +112,7 @@ redsocks {
 	timeout = 10;
 
 	// login = "foobar";// field 'login' is reused as encryption
-					   // method of shadowsocks
+	                    // method of shadowsocks
 	// password = "baz";
 }
 
@@ -124,7 +125,7 @@ redudp {
 	// `relay' is ip and port of socks5 proxy server.
 	relay = "10.0.0.1:1080";
 	login = username;// field 'login' is reused as encryption
-					   // method of shadowsocks
+	                 // method of shadowsocks
 	password = pazzw0rd;
 
 	// know types: socks5, shadowsocks
@@ -179,7 +180,7 @@ ipcache {
     // Configure IP cache
     cache_size = 4;   // Maximum number of IP's in 1K. 
     stale_time = 900; // Seconds to stale an IP in cache since it is added
-                      // into cahce.
+                      // into cache.
                       // Set it to 0 to disable cache stale.
     port_check = 1;   // Whether to distinguish port number in address
     cache_file = "/tmp/ipcache.txt"; // File used to store blocked IP's in cache.

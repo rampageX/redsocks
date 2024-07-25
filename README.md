@@ -11,14 +11,15 @@ redsocks.
 1. Redirect TCP connections which are blocked via proxy automatically without
 need of blacklist.
 2. Redirect UDP based DNS requests via TCP connection.
-3. Integrated [shadowsocks](http://shadowsocks.org/) proxy support(IPv4 Only).
+3. Integrated [shadowsocks](http://shadowsocks.org/) proxy support.
 4. Redirect TCP connections without proxy.
 5. Redirect TCP connections via specified network interface.
 6. UDP transparent proxy via shadowsocks proxy.
 7. Support Ful-cone NAT Traversal when working with shadowsocks or socks5 proxy.
 8. Integrated HTTPS proxy support(HTTP CONNECT over SSL).
-9. Support TCP Fast Open on local server side and shadowsocks client side
-10. Support port reuse ([SO_REUSEPORT](https://lwn.net/Articles/542629/))
+9. Support TCP Fast Open on local server side and shadowsocks client side.
+10. Support port reuse ([SO_REUSEPORT](https://lwn.net/Articles/542629/)).
+11. Support IPv6.
 
 [Chinese Reference](https://github.com/semigodking/redsocks/wiki)
 
@@ -55,13 +56,7 @@ compile like (Require libevent2 compiled with OpenSSL support):
 $ make ENABLE_HTTPS_PROXY=true
 ```
 
-To compile on newer systems with OpenSSL 1.1.0 and newer (disables shadowsocks support):
-```
-$ git apply patches/disable-ss.patch
-$ make
-```
-
-To compile on newer systems with OpenSSL 1.1.1+ (just disable shadowsocks support, no patch need and worked with ENABLE_HTTPS_PROXY. DO NOT APPLY THE PATCH!):
+To compile on newer systems with OpenSSL 1.1.1+ (just disable shadowsocks support, no patch need and worked with `ENABLE_HTTPS_PROXY`.):
 ```
 $ make DISABLE_SHADOWSOCKS=true
 ```
@@ -133,7 +128,7 @@ by field 'login'.
 		timeout = 13;
 		autoproxy = 1;
 		login = "aes-128-cfb"; // field 'login' is reused as encryption
-							   // method of shadowsocks
+		                       // method of shadowsocks
 		password = "your password"; // Your shadowsocks password
 	}
 
@@ -178,36 +173,6 @@ List of supported encryption methods(Compiled with PolarSSL):
 	CAMELLIA-192-CFB128
 	CAMELLIA-256-CFB128
 
-### Work with GoAgent
-To make redsocks2 works with GoAgent proxy, you need to set proxy type as
-'http-relay' for HTTP protocol and 'http-connect' for HTTPS protocol  
-respectively.
-Suppose your goagent local proxy is running at the same server as redsocks2,
-The configuration for forwarding connections to GoAgent is like below:
-
-	redsocks {
-	 bind = "192.168.1.1:1081"; //HTTP should be redirect to this port.
-	 relay = "192.168.1.1:8080";
-	 type = http-relay; // Must be 'htt-relay' for HTTP traffic.
-	 autoproxy = 1; // I want autoproxy feature enabled on this section.
-	 // timeout is meaningful when 'autoproxy' is non-zero.
-	 // It specified timeout value when trying to connect to destination
-	 // directly. Default is 10 seconds. When it is set to 0, default
-	 // timeout value will be used.
-	 timeout = 13;
-	}
-	redsocks {
-	 bind = "192.168.1.1:1082"; //HTTPS should be redirect to this port.
-	 relay = "192.168.1.1:8080";
-	 type = http-connect; // Must be 'htt-connect' for HTTPS traffic.
-	 autoproxy = 1; // I want autoproxy feature enabled on this section.
-	 // timeout is meaningful when 'autoproxy' is non-zero.
-	 // It specified timeout value when trying to connect to destination
-	 // directly. Default is 10 seconds. When it is set to 0, default
-	 // timeout value will be used.
-	 timeout = 13;
-	}
-
 ### Redirect UDP based DNS Request via TCP connection
 Sending DNS request via TCP connection is one way to prevent from DNS
 poisoning. You can redirect all UDP based DNS requests via TCP connection
@@ -217,8 +182,8 @@ with the following config section.
     	// Transform UDP DNS requests into TCP DNS requests.
     	// You can also redirect connections to external TCP DNS server to
     	// REDSOCKS transparent proxy via iptables.
-	bind = "192.168.1.1:1053"; // Local server to act as DNS server
-	tcpdns1 = "8.8.4.4:53";    // DNS server that supports TCP DNS requests
+    	bind = "192.168.1.1:1053"; // Local server to act as DNS server
+    	tcpdns1 = "8.8.4.4:53";    // DNS server that supports TCP DNS requests
     	tcpdns2 = 8.8.8.8;      // DNS server that supports TCP DNS requests
     	timeout = 4;            // Timeout value for TCP DNS requests
     }

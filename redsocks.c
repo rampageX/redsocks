@@ -205,8 +205,29 @@ static int redsocks_onexit(parser_section *section)
     if (!err && instance->config.relay) {
         struct sockaddr * addr = (struct sockaddr *)&instance->config.relayaddr;
         int addr_size = sizeof(instance->config.relayaddr);
-        if (evutil_parse_sockaddr_port(instance->config.relay, addr, &addr_size))
-            err = "invalid relay address";
+        if (evutil_parse_sockaddr_port(instance->config.relay, addr, &addr_size)) {
+            char * pos = strchr(instance->config.relay, ':');
+            char * host = NULL;
+            if (pos != NULL)
+                host = strndup(instance->config.relay, pos - instance->config.relay);
+            else
+                host = instance->config.relay;
+            int result = resolve_hostname(host, AF_INET, addr);
+            if (result != 0) {
+                result = resolve_hostname(host, AF_INET6, addr);
+            }
+            if (result != 0) {
+                err = "invalid relay address";
+            }
+            if (!err && pos != NULL) {
+                if (addr->sa_family == AF_INET)
+                    ((struct sockaddr_in*)addr)->sin_port = htons(atoi(pos+1));
+                else
+                    ((struct sockaddr_in6*)addr)->sin6_port = htons(atoi(pos+1));
+            }
+            if (host != instance->config.relay)
+                free(host);
+        }
     }
 
     if (!err && instance->config.type) {
@@ -221,7 +242,7 @@ static int redsocks_onexit(parser_section *section)
         if (!instance->relay_ss)
             err = "invalid `type` for redsocks";
     }
-    else {
+    else if (!err) {
         err = "no `type` for redsocks";
     }
 
@@ -998,10 +1019,10 @@ static int redsocks_init_instance(redsocks_instance *instance)
     if (make_socket_transparent(fd))
         log_error(LOG_WARNING, "Continue without TPROXY support");
 
-//    if (apply_reuseport(fd))
-//        log_error(LOG_WARNING, "Continue without SO_REUSEPORT enabled");
+    if (apply_reuseport(fd))
+        log_error(LOG_WARNING, "Continue without SO_REUSEPORT enabled");
 
-#if defined(__APPLE__) || defined(__FreeBSD__)
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
     bindaddr_len = instance->config.bindaddr.ss_len > 0 ? instance->config.bindaddr.ss_len : sizeof(instance->config.bindaddr);
 #else
     bindaddr_len = sizeof(instance->config.bindaddr);

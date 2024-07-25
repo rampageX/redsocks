@@ -1,3 +1,4 @@
+
 /* redsocks2 - transparent TCP/UDP-to-proxy redirector
  * Copyright (C) 2013-2017 Zhuofei Wang <semigodking@gmail.com>
  *
@@ -52,13 +53,21 @@ static char shared_buff[MAX_UDP_PACKET_SIZE];// max size of UDP packet is less t
 static void redudp_fini_instance(redudp_instance *instance);
 static int redudp_fini();
 
-struct bound_udp4_key {
-    struct in_addr sin_addr;
-    uint16_t       sin_port;
+struct bound_udp_key {
+    int sa_family;
+    union {
+        uint16_t       sin_port;
+        uint16_t       sin6_port;
+    };
+    // Do not change position
+    union {
+        struct in_addr sin_addr;
+        struct in6_addr sin6_addr;
+    };
 };
 
-struct bound_udp4 {
-    struct bound_udp4_key key;
+struct bound_udp {
+    struct bound_udp_key key;
     int ref;
     int fd;
     time_t t_last_rx;
@@ -79,29 +88,36 @@ static udprelay_subsys *relay_subsystems[] =
  * Helpers
  */
 // TODO: separate binding to privileged process (this operation requires uid-0)
-static void* root_bound_udp4 = NULL; // to avoid two binds to same IP:port
+static void* root_bound_udp = NULL; // to avoid two binds to same IP:port
 
-static int bound_udp4_cmp(const void *a, const void *b)
+static int bound_udp_cmp(const void *a, const void *b)
 {
-    return memcmp(a, b, sizeof(struct bound_udp4_key));
+    return memcmp(a, b, sizeof(struct bound_udp_key));
 }
 
-static void bound_udp4_mkkey(struct bound_udp4_key *key, const struct sockaddr_in *addr)
+static void bound_udp_mkkey(struct bound_udp_key *key, const struct sockaddr *addr)
 {
     memset(key, 0, sizeof(*key));
-    key->sin_addr = addr->sin_addr;
-    key->sin_port = addr->sin_port;
+    key->sa_family = addr->sa_family;
+    if (addr->sa_family == AF_INET) {
+        key->sin_addr = ((const struct sockaddr_in*)addr)->sin_addr;
+        key->sin_port = ((const struct sockaddr_in*)addr)->sin_port;
+    }
+    else if (addr->sa_family == AF_INET6) {
+        key->sin6_addr = ((const struct sockaddr_in6*)addr)->sin6_addr;
+        key->sin6_port = ((const struct sockaddr_in6*)addr)->sin6_port;
+    }
 }
 
-static int bound_udp4_get(const struct sockaddr_in *addr)
+static int bound_udp_get(const struct sockaddr *addr)
 {
-    struct bound_udp4_key key;
-    struct bound_udp4 *node, **pnode;
+    struct bound_udp_key key;
+    struct bound_udp *node, **pnode;
 
-    bound_udp4_mkkey(&key, addr);
+    bound_udp_mkkey(&key, addr);
     // I assume, that memory allocation for lookup is awful, so I use
     // tfind/tsearch pair instead of tsearch/check-result.
-    pnode = tfind(&key, &root_bound_udp4, bound_udp4_cmp);
+    pnode = tfind(&key, &root_bound_udp, bound_udp_cmp);
     if (pnode) {
         assert((*pnode)->ref > 0);
         (*pnode)->ref++;
@@ -117,7 +133,23 @@ static int bound_udp4_get(const struct sockaddr_in *addr)
 
     node->key = key;
     node->ref = 1;
-    node->fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    node->fd = socket(addr->sa_family, SOCK_DGRAM, IPPROTO_UDP);
+#if defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+    int on = 1;
+#if defined(__FreeBSD__)
+#ifdef SOL_IPV6
+    if (addr->sa_family == AF_INET) {
+#endif
+        setsockopt(node->fd, IPPROTO_IP, IP_BINDANY, &on, sizeof(on));
+#ifdef SOL_IPV6
+    } else {
+        setsockopt(node->fd, IPPROTO_IPV6, IPV6_BINDANY, &on, sizeof(on));
+    }
+#endif
+#else
+    setsockopt(node->fd, SOL_SOCKET, SO_BINDANY, &on, sizeof(on));
+#endif
+#endif
     node->t_last_rx = redsocks_time(NULL);
     if (node->fd == -1) {
         log_errno(LOG_ERR, "socket");
@@ -142,7 +174,7 @@ static int bound_udp4_get(const struct sockaddr_in *addr)
         goto fail;
     }
 
-    pnode = tsearch(node, &root_bound_udp4, bound_udp4_cmp);
+    pnode = tsearch(node, &root_bound_udp, bound_udp_cmp);
     if (!pnode) {
         log_errno(LOG_ERR, "tsearch(%p) == %p", node, pnode);
         goto fail;
@@ -160,14 +192,14 @@ fail:
     return -1;
 }
 
-static void bound_udp4_put(const struct sockaddr_in *addr)
+static void bound_udp_put(const struct sockaddr *addr)
 {
-    struct bound_udp4_key key;
-    struct bound_udp4 **pnode, *node;
+    struct bound_udp_key key;
+    struct bound_udp **pnode, *node;
     void *parent;
 
-    bound_udp4_mkkey(&key, addr);
-    pnode = tfind(&key, &root_bound_udp4, bound_udp4_cmp);
+    bound_udp_mkkey(&key, addr);
+    pnode = tfind(&key, &root_bound_udp, bound_udp_cmp);
     assert(pnode && (*pnode)->ref > 0);
 
     node = *pnode;
@@ -176,7 +208,7 @@ static void bound_udp4_put(const struct sockaddr_in *addr)
     if (node->ref)
         return;
 
-    parent = tdelete(node, &root_bound_udp4, bound_udp4_cmp);
+    parent = tdelete(node, &root_bound_udp, bound_udp_cmp);
     assert(parent);
 
     close(node->fd); // expanding `pnode` to avoid use after free
@@ -188,10 +220,10 @@ static void bound_udp4_put(const struct sockaddr_in *addr)
  * For each destination address, if no packet received from it for a certain period,
  * it is removed and the corresponding FD is closed.
  */
-static void bound_udp4_action(const void *nodep, const VISIT which, const int depth)
+static void bound_udp_action(const void *nodep, const VISIT which, const int depth)
 {
     time_t now;
-    struct bound_udp4 *datap;
+    struct bound_udp *datap;
     void *parent;
     char buf[RED_INET_ADDRSTRLEN];
 
@@ -202,15 +234,15 @@ static void bound_udp4_action(const void *nodep, const VISIT which, const int de
         case endorder:
         case leaf:
             now = redsocks_time(NULL);
-            datap = *(struct bound_udp4 **) nodep;
+            datap = *(struct bound_udp **) nodep;
             // TODO: find a proper way to make timeout configurable for each instance.
             if (datap->t_last_rx + 20 < now) {
-                parent = tdelete(datap, &root_bound_udp4, bound_udp4_cmp);
+                parent = tdelete(datap, &root_bound_udp, bound_udp_cmp);
                 assert(parent);
 
-                inet_ntop(AF_INET, &datap->key.sin_addr, &buf[0], sizeof(buf));
+                inet_ntop(datap->key.sa_family, &datap->key.sin_addr, &buf[0], sizeof(buf));
                 log_error(LOG_DEBUG, "Close UDP socket %d to %s:%u", datap->fd,
-                                     &buf[0], datap->key.sin_port);
+                                     &buf[0], ntohs(datap->key.sin_port));
                 close(datap->fd);
                 free(datap);
             }
@@ -277,17 +309,21 @@ void redudp_fwd_pkt_to_sender(redudp_client *client, void *buf, size_t len,
 
     // When working with TPROXY, we have to get sender FD from tree on
     // receipt of each packet from relay.
-    // FIXME: Support IPv6
-    fd = (do_tproxy(client->instance) && srcaddr->ss_family == AF_INET)
-        ? bound_udp4_get((struct sockaddr_in*)srcaddr) : event_get_fd(client->instance->listener);
+    fd = do_tproxy(client->instance)
+        ? bound_udp_get((struct sockaddr*)srcaddr) : event_get_fd(client->instance->listener);
     if (fd == -1) {
-        redudp_log_error(client, LOG_WARNING, "bound_udp4_get failure");
+        redudp_log_error(client, LOG_WARNING, "bound_udp_get failure");
         return;
     }
     // TODO: record remote address in client
 
+
     sent = sendto(fd, buf, len, 0,
+#if defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+                  (struct sockaddr*)&client->clientaddr, sizeof(struct sockaddr_in));
+#else
                   (struct sockaddr*)&client->clientaddr, sizeof(client->clientaddr));
+#endif
     if (sent != len) {
         redudp_log_error(
             client,
@@ -516,8 +552,29 @@ static int redudp_onexit(parser_section *section)
     if (!err && instance->config.relay) {
         struct sockaddr * addr = (struct sockaddr *)&instance->config.relayaddr;
         int addr_size = sizeof(instance->config.relayaddr);
-        if (evutil_parse_sockaddr_port(instance->config.relay, addr, &addr_size))
-            err = "invalid relay address";
+        if (evutil_parse_sockaddr_port(instance->config.relay, addr, &addr_size)) {
+            char * pos = strchr(instance->config.relay, ':');
+            char * host = NULL;
+            if (pos != NULL)
+                host = strndup(instance->config.relay, pos - instance->config.relay);
+            else
+                host = instance->config.relay;
+            int result = resolve_hostname(host, AF_INET, addr);
+            if (result != 0) {
+                result = resolve_hostname(host, AF_INET6, addr);
+            }
+            if (result != 0) {
+                err = "invalid relay address";
+            }
+            if (!err && pos != NULL) {
+                if (addr->sa_family == AF_INET)
+                    ((struct sockaddr_in*)addr)->sin_port = htons(atoi(pos+1));
+                else
+                    ((struct sockaddr_in6*)addr)->sin6_port = htons(atoi(pos+1));
+            }
+            if (host != instance->config.relay)
+                free(host);
+        }
     }
     else if (!instance->config.relay)
         err = "missing relay address";
@@ -528,7 +585,7 @@ static int redudp_onexit(parser_section *section)
             err = "invalid dest address";
     }
 
-    if (instance->config.type) {
+    if (!err && instance->config.type) {
         udprelay_subsys **ss;
         FOREACH(ss, relay_subsystems) {
             if (!strcmp((*ss)->name, instance->config.type)) {
@@ -540,10 +597,9 @@ static int redudp_onexit(parser_section *section)
         if (!instance->relay_ss)
             err = "invalid `type` for redudp";
     }
-    else {
+    else if (!err) {
         err = "no `type` for redudp";
     }
-
 
     if (instance->config.max_pktqueue == 0) {
         parser_error(section->context, "max_pktqueue must be greater than 0.");
@@ -558,6 +614,9 @@ static int redudp_onexit(parser_section *section)
         return -1;
     }
 
+    if (err)
+        parser_error(section->context, "%s", err);
+
     return err?-1:0;
 }
 
@@ -570,7 +629,9 @@ static int redudp_init_instance(redudp_instance *instance)
     int error;
     int fd = -1;
     int bindaddr_len = 0;
-    char buf1[RED_INET_ADDRSTRLEN], buf2[RED_INET_ADDRSTRLEN];
+    char buf1[RED_INET_ADDRSTRLEN],
+         buf2[RED_INET_ADDRSTRLEN],
+         buf3[RED_INET_ADDRSTRLEN];
 
     instance->shared_buff = &shared_buff[0];
     if (instance->relay_ss->instance_init
@@ -599,6 +660,10 @@ static int redudp_init_instance(redudp_instance *instance)
                 log_errno(LOG_ERR, "setsockopt(listener, SOL_IP, IP_RECVORIGDSTADDR)");
                 goto fail;
             }
+#if defined(__OpenBSD__) || defined(__NetBSD__)
+            setsockopt(fd, IPPROTO_IP, IP_RECVDSTADDR, &on, sizeof(on));
+            setsockopt(fd, IPPROTO_IP, IP_RECVDSTPORT, &on, sizeof(on));
+#endif
 #ifdef SOL_IPV6
         }
         else {
@@ -607,20 +672,25 @@ static int redudp_init_instance(redudp_instance *instance)
                 log_errno(LOG_ERR, "setsockopt(listener, SOL_IPV6, IPV6_RECVORIGDSTADDR)");
                 goto fail;
             }
+#if defined(__OpenBSD__) || defined(__NetBSD__)
+            setsockopt(fd, IPPROTO_IP, IPV6_RECVPKTINFO, &on, sizeof(on));
+            setsockopt(fd, IPPROTO_IP, IPV6_RECVDSTPORT, &on, sizeof(on));
+#endif
         }
 #endif
         log_error(LOG_INFO, "redudp @ %s: TPROXY", red_inet_ntop(&instance->config.bindaddr, buf1, sizeof(buf1)));
     }
     else {
-        log_error(LOG_INFO, "redudp @ %s: destaddr=%s",
+        log_error(LOG_INFO, "redudp @ %s: relay=%s destaddr=%s",
             red_inet_ntop(&instance->config.bindaddr, buf1, sizeof(buf1)),
-            red_inet_ntop(&instance->config.destaddr, buf2, sizeof(buf2)));
+            red_inet_ntop(&instance->config.relayaddr, buf2, sizeof(buf2)),
+            red_inet_ntop(&instance->config.destaddr, buf3, sizeof(buf3)));
     }
 
     if (apply_reuseport(fd))
         log_error(LOG_WARNING, "Continue without SO_REUSEPORT enabled");
 
-#if defined(__APPLE__) || defined(__FreeBSD__)
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
     bindaddr_len = instance->config.bindaddr.ss_len > 0 ? instance->config.bindaddr.ss_len : sizeof(instance->config.bindaddr);
 #else
     bindaddr_len = sizeof(instance->config.bindaddr);
@@ -697,7 +767,7 @@ static struct event * audit_event = NULL;
 
 static void redudp_audit(int sig, short what, void *_arg)
 {
-    twalk(root_bound_udp4, bound_udp4_action);
+    twalk(root_bound_udp, bound_udp_action);
 }
 
 static int redudp_init()
